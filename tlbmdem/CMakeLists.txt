@@ -25,6 +25,18 @@ SET(CUDAPROGS
     tlbmdem_cu_01
     tlbmdem_cu_02
     tlbmdem_cu_03
+    tlbmdem_cu_04
+    tlbmdem_cu_05
+    tlbmdem_cu_06
+tlbmdem_cu_07
+tlbmdem_cu_08
+tlbmdem_cu_09
+tlbmdem_cu_10
+tlbmdem_cu_11
+tlbmdem_cu_12
+tlbmdem_cu_13
+tlbmdem_cu_14
+tlbmdem_cu_15
 )
 
 FOREACH(var ${PROGS})
@@ -36,7 +48,7 @@ ENDFOREACH(var)
 FOREACH(var ${CUDAPROGS})
     ADD_EXECUTABLE        (${var} "${var}.cu")
     TARGET_LINK_LIBRARIES (${var} ${CUDA_LIBRARIES})
-    SET_TARGET_PROPERTIES (${var} PROPERTIES COMPILE_FLAGS "${FLAGS} -DUSE_CUDA" LINK_FLAGS "${LFLAGS}")
-    #SET_TARGET_PROPERTIES (${var} PROPERTIES COMPILE_FLAGS "${FLAGS} -DUSE_CUDA -arch=sm_60" LINK_FLAGS "${LFLAGS}")
-    SET_TARGET_PROPERTIES (${var} PROPERTIES CUDA_ARCHITECTURES "native")
+    #SET_TARGET_PROPERTIES (${var} PROPERTIES COMPILE_FLAGS "${FLAGS} -DUSE_CUDA" LINK_FLAGS "${LFLAGS}")
+    SET_TARGET_PROPERTIES (${var} PROPERTIES COMPILE_FLAGS "${FLAGS} -DUSE_CUDA -arch=sm_60" LINK_FLAGS "${LFLAGS}")
+    #SET_TARGET_PROPERTIES (${var} PROPERTIES CUDA_ARCHITECTURES "native")
 ENDFOREACH(var)

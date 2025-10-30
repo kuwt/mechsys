@@ -15,7 +15,7 @@
  * You should have received a copy of the GNU General Public License    *
  * along with this program. If not, see <http://www.gnu.org/licenses/>  *
  ************************************************************************/
-// Periodic boundary conditions
+// Drag coefficient of sphere.
 
 
 // MechSys
@@ -26,73 +26,44 @@
 
 struct UserData
 {
-    std::ofstream      oss_ss;       ///< file for particle data
     Vec3_t                acc;
     double                 nu;
     double                  R;
 };
 
+
 void Setup (LBMDEM::Domain & dom, void * UD)
 {
-    UserData & dat = (*static_cast<UserData *>(UD));
-    //#pragma omp parallel for schedule(static) num_threads(dom.Nproc)
-	//for (size_t ix=0; ix<dom.LBMDOM.Ndim(0); ++ix)
-	//for (size_t iy=0; iy<dom.LBMDOM.Ndim(1); ++iy)
-	//for (size_t iz=0; iz<dom.LBMDOM.Ndim(2); ++iz)
-    //{
-        //dom.LBMDOM.BForce[0][ix][iy][iz] = dom.LBMDOM.Rho[0][ix][iy][iz]*dat.acc;
-    //}
 }
 
 void Report (LBMDEM::Domain & dom, void * UD)
 {
-    UserData & dat = (*static_cast<UserData *>(UD));
-    if (dom.idx_out==0)
-    {
-        String fs;
-        fs.Printf("%s_force.res",dom.FileKey.CStr());
-        dat.oss_ss.open(fs.CStr());
-        dat.oss_ss << Util::_10_6 << "Time" << Util::_8s << "Fx" << Util::_8s << "Vx" << Util::_8s << "Fa \n";
-    }
-    if (!dom.Finished)
-    {
-        dat.oss_ss << Util::_10_6 << dom.Time << Util::_8s << norm(dom.DEMDOM.Particles[0]->Flbm) << Util::_8s << norm(dom.DEMDOM.Particles[0]->v) << Util::_8s << 6.0*M_PI*dat.nu*dat.R*norm(dom.DEMDOM.Particles[0]->v) << std::endl;
-    }
-    else
-    {
-        dat.oss_ss.close();
-    }
 }
 
 int main(int argc, char **argv) try
 {
     size_t Nproc = 0.75*omp_get_max_threads();
-    if (argc>=2) Nproc = atoi(argv[1]);
 
         
-    double nu = 1.6;
-    size_t nx = 200;
-    size_t ny = 200;
-    size_t nz = 200;
-    double dx = 0.4;
+    double nu = 1.0;
+    size_t nx = 101;
+    size_t ny = 101;
+    size_t nz = 101;
+    double dx = 0.2;
     double dt = 1.6e-2;
-    double R = 1.8;
+    double R  = 1.8;
+    //double R  = 0.3;
     LBMDEM::Domain dom(D3Q15,nu,iVec3_t(nx,ny,nz),dx,dt);
-    //dom.LBMDOm.Step = 2; //it will reduce the save files by averagin every 2 cells
     UserData dat;
     dom.UserData = &dat;
     dat.R  = R;
     dat.nu = nu;
-    //dat.acc = Vec3_t(1.0e-2,1.0e-2,1.0e-2);
-    dat.acc = Vec3_t(1.0e-2,0.0,0.0);
-    //dom.DEMDOM.AddSphere(-1,Vec3_t(0.5*dx*nx,0.5*dx*ny,0.5*dx*nz),R,1.0);
-    dom.DEMDOM.AddSphere(-1,Vec3_t(0.95*dx*nx,0.5*dx*ny,0.5*dx*nz),R,1.0);
-    //dom.DEMDOM.AddSphere(-1,Vec3_t(0.95*dx*nx,0.95*dx*ny,0.95*dx*nz),R,1.0);
-    //double e = pow(M_PI/6.0,1.0/3.0)*2*R;
-    //dom.DEMDOM.AddCube(-1,Vec3_t(0.95*dx*nx,0.95*dx*ny,0.95*dx*nz),0.05*e,e,1.0);
+    double rho = 1.0;
+    dat.acc = Vec3_t(0.0,0.0,-1.0e-2);
+    dom.DEMDOM.AddSphere(-1,Vec3_t(0.5*dx*nx,0.5*dx*ny,0.5*dx*nz),R,rho);
     dom.DEMDOM.GetParticle(-1)->Ff = dom.DEMDOM.GetParticle(-1)->Props.m*dat.acc;
-    //dom.DEMDOM.AddCube(-2,Vec3_t(0.1*dx*nx,0.1*dx*ny,0.1*dx*nz),0.05*e,e,1.0);
-
+    dom.DEMDOM.AddPlane(1,Vec3_t(0.5*dx*nx,0.5*dx*ny,0.2*dx*nz),R* 0.3,0.5*dx*nx,0.5*dx*ny,rho, 0,0 );
+    dom.DEMDOM.GetParticle(1)->FixVeloc();
 
     //Setting intial conditions of fluid
     for (size_t ix=0;ix<nx;ix++)
@@ -102,16 +73,12 @@ int main(int argc, char **argv) try
         Vec3_t v(0.0,0.0,0.0);
         iVec3_t idx(ix,iy,iz);
         dom.LBMDOM.Initialize(0,idx,1.0/*rho*/,v);
-        if ((iz==0)||(iz==nz-1)||(iy==0)||(iy==ny-1)) dom.LBMDOM.IsSolid[0][ix][iy][iz] = true;
     }   
 
     dom.Alpha = 2.0*dx;
-    dom.PeriodicX= true;
-    dom.PeriodicY= true;
-    dom.PeriodicZ= true;
-    
-    double Tf = 2.0e3;
-    dom.Solve(Tf,Tf/200,Setup,Report,"tlbmdem_cu_02",true,Nproc);
+
+    double Tf = 1.0e4;
+    dom.Solve(Tf,Tf/200,Setup,Report,"tlbmdem_cu_04",true,Nproc);
 }
 MECHSYS_CATCH
 
