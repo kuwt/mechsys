@@ -37,6 +37,7 @@ tlbmdem_cu_12
 tlbmdem_cu_13
 tlbmdem_cu_14
 tlbmdem_cu_15
+tlbmdem_cu_16
 )
 
 FOREACH(var ${PROGS})
