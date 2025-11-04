@@ -36,9 +36,16 @@ struct UserData
     double                  R;
 };
 
-
+__global__ void Setup(real3 * BForce, real const * Rho, real3 const * acc, FLBM::lbm_aux * lbmaux)
+{
+    size_t ic = threadIdx.x + blockIdx.x * blockDim.x;
+    if (ic>=lbmaux[0].Ncells) return;
+    BForce[ic] = Rho[ic]*acc[0];
+}
 void Setup (LBMDEM::Domain & dom, void * UD)
 {
+    UserData & dat = (*static_cast<UserData *>(UD));
+    Setup<<<dom.LBMDOM.Ncells/dom.Nthread+1,dom.Nthread>>>(dom.LBMDOM.pBForce,dom.LBMDOM.pRho,dat.pacc,dom.LBMDOM.plbmaux);
 }
 
 void Report (LBMDEM::Domain & dom, void * UD)
@@ -66,6 +73,7 @@ public:
     double lambdashift = 0.1 ;
     double dlayer  =1;
     double ObstaclePlaceCenterZPercent = 0.9;
+    int SkipVisFactor = 2;
 
 }  Parameter;
 
@@ -102,6 +110,7 @@ void LoadParameter(std::string jsonCFG_path) {  // should be rewritten into a te
     getJsonPara( j2, "lambdashift", Parameter.lambdashift);
     getJsonPara( j2, "dlayer", Parameter.dlayer);
     getJsonPara( j2, "PlaceCenterZPercent", Parameter.ObstaclePlaceCenterZPercent);
+    getJsonPara( j2, "SkipVisFactor", Parameter.SkipVisFactor);
 }
 
 std::vector<Vec3_t> generate_obstacle_positions_lattice2D(
@@ -109,22 +118,21 @@ std::vector<Vec3_t> generate_obstacle_positions_lattice2D(
                                                         double domainsize,
                                                         double lambda,
                                                         double lambdashift,
-                                                        double d, // distance between obstacle 
-                                                        double dlayer // distance between layer
+                                                        double lambdalayer // distance between layer,
                                                         ) {
 
     int nPoints = domainsize/lambda;
-
+    
     std::vector<Vec3_t> positions;
     // Create approximate lattice
     for (size_t k = 0; k < nlayer ; ++k) {                                                        
         for (size_t j = 0; j < nPoints ; ++j) {
-            double x = j * d + k * lambdashift;
+            double x = j * lambda + k * lambdashift;
             x = std::fmod(x, domainsize);
             if (x< 0){
                 x+=domainsize;
             } 
-            double z = k * dlayer;
+            double z = k * (lambdalayer);
             std::cout << "Preliminary: particle pos: " << x << " "  << z << std::endl;
             positions.push_back(Vec3_t(x, 0, z));
         }
@@ -135,16 +143,16 @@ std::vector<Vec3_t> generate_obstacle_positions_lattice2D(
     double normalize_sum_y = 0.0;
     double normalize_sum_z = 0.0;
     for (const auto &p : positions) {
-        normalize_sum_x += p(0)/d;
-        normalize_sum_y += p(1)/d;
-        normalize_sum_z += p(2)/dlayer;
+        normalize_sum_x += p(0);
+        normalize_sum_y += p(1);
+        normalize_sum_z += p(2);
     }
     double normalize_avg_x = normalize_sum_x / positions.size();
     double normalize_avg_y = normalize_sum_y / positions.size();
     double normalize_avg_z = normalize_sum_z / positions.size();
-    double avg_x = normalize_avg_x * d;
-    double avg_y = normalize_avg_y * d;
-    double avg_z = normalize_avg_z *dlayer;
+    double avg_x = normalize_avg_x;
+    double avg_y = normalize_avg_y;
+    double avg_z = normalize_avg_z;
     std::cout << "avg x y: " << avg_x << " " << avg_y << " " << avg_z <<std::endl;
     // shifting the positions of the lattice to have an average center {0,0}
     for (auto &p : positions) {
@@ -194,21 +202,18 @@ int main(int argc, char **argv) try
     double PlaceCenterZPercent = Parameter.ObstaclePlaceCenterZPercent;
     
     LBMDEM::Domain dom(D3Q15,nu,iVec3_t(nx,ny,nz),dx,dt);
-    dom.LBMDOM.Step = 2; //it will reduce the save files by averagin every 2 cells
+    dom.LBMDOM.Step = Parameter.SkipVisFactor; //it will reduce the save files by averagin every 2 cells
    
     UserData dat;
     dom.UserData = &dat;
     dat.R  = R;
     dat.nu = nu;
     
-    
     double spongeSize = 2*dx;
 
-   // create particle position
+   // create Obstacle
     std::vector<Vec3_t> pos;
-    pos = generate_obstacle_positions_lattice2D( nlayer,lx,lambda,lambdashift, d, dlayer);
-
-    // shift particle cloud center
+    pos = generate_obstacle_positions_lattice2D( nlayer,lx,lambda,lambdashift, h+dlayer);
     std::vector<Vec3_t> new_pos;
     for (auto &p : pos) {
         new_pos.push_back(Vec3_t(0.5*lx + p(0), 0.5*ly+p(1),PlaceCenterZPercent*lz + p(2)));
@@ -216,10 +221,15 @@ int main(int argc, char **argv) try
     pos = new_pos;    
      Vec3_t axis0(OrthoSys::e0);
     for (size_t k = 0;k<pos.size();k++) {
-        int id = k;
+        int id = -1 - k;
         dom.DEMDOM.AddRecBox(id, pos[k], Vec3_t(lambda-d,ly-spongeSize*2,h), spongeSize,rho,0,&axis0);
         dom.DEMDOM.GetParticle(id)->FixVeloc();
+        dom.DEMDOM.GetParticle(id)->FixFree  = true;
     }
+
+    // create Particle
+    dom.DEMDOM.AddSphere(1,Vec3_t(0.5*lx, 0.5*ly,0.9*lz),R,rho);
+
     //Setting intial conditions of fluid
     for (size_t ix=0;ix<nx;ix++)
     for (size_t iy=0;iy<ny;iy++)
@@ -230,7 +240,7 @@ int main(int argc, char **argv) try
         dom.LBMDOM.Initialize(0,idx,rhof,v);
     }   
 
-    real3 acc = make_real3(0.0,0.0,-accz);
+    real3 acc = make_real3(0.0,0.0,accz);
     cudaMalloc(&dat.pacc, sizeof(real3));
     cudaMemcpy(dat.pacc, &acc, sizeof(real3), cudaMemcpyHostToDevice);
 
@@ -239,7 +249,7 @@ int main(int argc, char **argv) try
     dom.PeriodicY= true;
     dom.PeriodicZ= true;
 
-    dom.Solve(Tf,Tf/OutputStep,Setup,Report,"tlbmdemParticleSettling",true,Nproc);
+    dom.Solve(Tf,Tf/OutputStep,Setup,Report,"tlbmdem_chromatography",true,Nproc);
 }
 MECHSYS_CATCH
 
